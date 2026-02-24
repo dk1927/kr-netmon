@@ -1,0 +1,15 @@
+# Sensitive Environment Configuration
+.env
+
+# Database Dumps / Data
+zbx_env/usr/var/lib/postgresql/data/*
+!zbx_env/usr/var/lib/postgresql/data/.gitkeep
+
+# Grafana Local Data
+grafana_data/*
+!grafana_data/.gitkeep
+
+# System/IDE Files
+.DS_Store
+.vscode/
+.idea/
