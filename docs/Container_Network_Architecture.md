@@ -4,7 +4,51 @@
 
 ---
 
-## 1. 스택(Stack) 격리 구조 개요
+## 1. 아키텍처 시각화 다이어그램 (Architecture Diagram)
+
+시스템의 전체적인 데이터 흐름과 네트워크 격리 상태를 시각화한 다이어그램입니다. Markdown Viewer 플러그인이나 GitHub 플랫폼 등에서 자동으로 그래프 기호로 전환되어 표출됩니다.
+
+```mermaid
+flowchart TB
+    classDef frontend fill:#d4edda,stroke:#28a745,stroke-width:2px,color:#333;
+    classDef backend fill:#cce5ff,stroke:#007bff,stroke-width:2px,color:#333;
+    classDef external fill:#f8d7da,stroke:#dc3545,stroke-width:2px,color:#333;
+    classDef host fill:#fff3cd,stroke:#ffc107,stroke-width:2px,color:#333;
+
+    User([👤 관리자 PC / 경영진]):::external
+    Switch([🔌 사내 네트워크 스위치들]):::external
+
+    subgraph HostOS ["🖥️ Ubuntu Host OS (UFW 방화벽 방어)"]
+        direction TB
+        
+        subgraph Frontend_Net ["🌐 kr-netmon-frontend (서비스망)"]
+            Grafana["📊 Grafana\n(포트 3000)"]:::frontend
+            Web["🌐 Zabbix Web\n(포트 8080)"]:::frontend
+            Trap["📩 Zabbix Traps\n(포트 1162)"]:::frontend
+        end
+
+        subgraph Backend_Net ["🔒 kr-netmon-backend (폐쇄망)"]
+            Server["⚙️ Zabbix Server\n(포트 10051)"]:::backend
+            DB[("🗄️ TimescaleDB\n(포트 5432)")]:::backend
+        end
+        
+        %% Container Internal Connections
+        Grafana -- "내부 API (8080)" --> Web
+        Web -- "DB 접근 (5432)" --> DB
+        Server -- "데이터 저장/조회 (5432)" --> DB
+        Trap -- "트랩 데이터 전송" --> Server
+    end
+
+    %% External Connections
+    User -- "대시보드 접속 (포트 3001)" --> Grafana
+    User -- "Zabbix 관리 (포트 8081)" --> Web
+    Switch -. "긴급 SNMP Trap (UDP 1162)" .-> Trap
+    Server -- "주기적 실시간 수집 (SNMP Polling)" --> Switch
+```
+
+---
+
+## 2. 스택(Stack) 격리 구조 개요
 
 시스템은 보안성(Security Gating)과 무장애(Fail-Safe) 설계를 충족하기 위해, 단일 OS(호스트) 위에 모든 것을 설치하지 않고 **역할별로 5개의 독립된 컨테이너(가상 박스)** 로 쪼개어 운용합니다. 이를 묶어주는 것이 2개의 가상 서브넷(Subnet)입니다.
 
@@ -20,7 +64,7 @@
 
 ---
 
-## 2. 컨테이너별 상세 스펙 및 역할 (Container Specs)
+## 3. 컨테이너별 상세 스펙 및 역할 (Container Specs)
 
 ### 2.1. Zabbix Database (`kr-netmon-zabbix-db`)
 *   **Base Image:** `docker.io/timescale/timescaledb:latest-pg16`
@@ -59,7 +103,7 @@
 
 ---
 
-## 3. 영구 저장용 볼륨 버퍼 (Volume Mapping)
+## 4. 영구 저장용 볼륨 버퍼 (Volume Mapping)
 컨테이너가 파괴되거나 업데이트 되더라도, 정보가 삭제되지 않고 우분투 호스트(본체)에 영구 보존되도록 매핑한 통로들입니다. (경로 확인 명령: `du -sh`)
 
 *   **`kr-netmon-db-data`:** 가장 중요. PostgreSQL의 실제 데이터.
@@ -69,7 +113,7 @@
 
 ---
 
-## 4. 아키텍처 방어 메커니즘 요약 (Security Review)
+## 5. 아키텍처 방어 메커니즘 요약 (Security Review)
 1. **Rootless:** 모든 동작 주체가 `podman` 기반으로 OS 권한이 박탈되어 있습니다.
 2. **UFW Defense:** Zabbix Web(8081), Grafana(3001), Trap 수신용(1162 UDP) 포트 외에는 호스트 OS 자체에서 어떠한 접근도 허용하지 않습니다. 컨테이너 내부 통신포트(예: 8080, 5432)는 UFW를 거치지 않으므로 안전합니다.
 3. **Read-Only SNMP:** 모든 수집은 타겟 장비를 읽기(Polling)만 하도록 디자인되어, 이 시스템이 장악당하더라도 망 마비로 번지지 않습니다.
