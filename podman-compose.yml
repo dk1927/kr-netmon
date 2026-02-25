@@ -56,12 +56,14 @@ services:
       - ZBX_TRENDCACHESIZE=128M
       - ZBX_HISTORYINDEXCACHESIZE=128M
       - ZBX_VALUECACHESIZE=256M
+      - ZBX_ALLOWROOT=1
     networks:
       - kr-netmon-backend
       - kr-netmon-frontend
     depends_on:
       zabbix-db:
         condition: service_healthy
+    user: root
     sysctls:
       - net.ipv4.ip_local_port_range=1024 65000
       - net.ipv4.conf.all.accept_redirects=0
