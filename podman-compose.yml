@@ -31,7 +31,10 @@ services:
 
   # Zabbix Server
   zabbix-server:
-    image: docker.io/zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    build:
+      context: .
+      dockerfile: Dockerfile.zabbix-server
+    image: custom-zabbix-server-pgsql:alpine-7.0-latest
     container_name: kr-netmon-zabbix-server
     restart: unless-stopped
     ports:

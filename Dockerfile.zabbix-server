@@ -1,0 +1,9 @@
+FROM docker.io/zabbix/zabbix-server-pgsql:alpine-7.0-latest
+
+USER root
+
+# ICMP fping (Ping) 권한 부여 (Rootless 컨테이너 환경에서 Ping을 사용하기 위한 필수 설정)
+# SetUID를 부여하여 zabbix 프로세스가 fping 실행 시 root 권한을 일시적으로 획득하도록 함
+RUN chown root:zabbix /usr/sbin/fping && chmod 4710 /usr/sbin/fping
+
+USER root
