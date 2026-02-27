@@ -1,6 +1,6 @@
-# SAMJIN Network Monitoring - 시스템 운영 및 사용자 매뉴얼 (User Operation Manual) v2.2
+# SAMJIN Network Monitoring - 시스템 운영 및 사용자 매뉴얼 (User Operation Manual) v2.3
 
-본 문서는 삼진정공 통합 네트워크 모니터링 시스템의 효율적 운영과 안정적인 서비스 유지를 위한 **표준 운영 지침서(SOP)**입니다. IT 관리자가 실무 현장에서 즉각 참조할 수 있는 서비스 접속, 장비 등록, 장애 대응 및 리눅스 서버 제어 절차를 포함합니다.
+본 문서는 삼진정공 통합 네트워크 모니터링 시스템의 운영 연속성 확보를 위한 **표준 운영 지침서(SOP)**입니다. 본 버전은 리눅스 서버 리소스 관리 및 백업 검증 절차를 대폭 강화하여 작성되었습니다.
 
 ---
 
@@ -11,95 +11,111 @@
 
 *   **Zabbix Admin Console (장비 구성 및 알람 관리)**
     *   **접속 주소:** `http://192.168.11.31:8081`
-    *   **계정 정보:** `Admin` (초기 로그인 후 즉시 비밀번호 변경 권고)
+    *   **초기 계정:** `Admin` / `zabbix` (최초 로그인 후 즉시 변경 필수)
 *   **Grafana Dashboard (전사 네트워크 통합 관제 현황판)**
     *   **접속 주소:** `http://192.168.11.31:3001`
-    *   **계정 정보:** `admin` (비밀번호는 환경변수 `${KR_NETMON_GRAFANA_PASSWORD}` 참조)
+    *   **계정 정보:** `admin` / `${KR_NETMON_GRAFANA_PASSWORD}`
 
 ---
 
-## 2. 리눅스 서버 및 서비스 제어 (Server & Service Control)
+## 2. 서버 및 서비스 제어 (Server & Service Management)
 
-모든 서비스는 `podman-compose`를 통해 통합 제어됩니다. 명령어는 반드시 프로젝트 루트 폴더(`~/kr-netmon`)에서 실행해야 합니다.
+모든 서비스는 `podman-compose` 인프라 위에서 구동됩니다. 명령어 실행 전 항상 `cd ~/kr-netmon`을 통해 프로젝트 루트로 이동하십시오.
 
-### 2.1 서비스 기본 제어
-*   **서비스 가동 (Start):** `cd ~/kr-netmon && podman-compose up -d`
-*   **서비스 정지 (Stop):** `cd ~/kr-netmon && podman-compose stop`
-*   **서비스 재시작 (Restart):** `cd ~/kr-netmon && podman-compose restart`
+### 2.1 서비스 기본 제어 (Lifecycle)
+*   **서비스 전체 가동:** `podman-compose up -d` (백그라운드 실행)
+*   **서비스 전체 정지:** `podman-compose stop` (데이터 안전 정지)
+*   **특정 서비스 재시작:** `podman-compose restart [서비스명]` (예: `zabbix-server`)
 
-### 2.2 서비스 상태 점검 (Health Check)
-*   **컨테이너 구동 확인:** `podman-compose ps` (모든 STATUS가 `Up` 또는 `healthy`여야 함)
-*   **자원 사용량 확인:** `podman stats --no-stream` (CPU/Memory 쿼터 준수 여부 확인)
-*   **실시간 로그 확인:** `podman logs -f kr-netmon-zabbix-server` (장애 원인 파악 시 사용)
-
----
-
-## 3. 신규 장비 등록 절차 (Device Provisioning)
-
-인프라 확충 시 Zabbix에 장비를 등록해야 실시간 텔레메트리 수집이 시작됩니다.
-
-### 단계 1: 타겟 장비 환경 설정
-*   **SNMP 활성화:** 스위치/방화벽 콘솔에서 SNMP v2c/v3 서비스를 가동합니다.
-*   **접근 제어:** 모니터링 서버 IP(`192.168.11.31`)의 읽기 전용(RO) 접근을 허용하도록 ACL을 설정합니다. (Community String: `samjin_monitor` 등)
-
-### 단계 2: Zabbix 호스트 등록
-1. Zabbix Web 콘솔 접속 ➔ `Data collection` ➔ `Hosts` ➔ `Create host` 클릭.
-2. **Host name:** 표준 명명 규칙을 따름 (예: `L3_A_E6124_1`).
-3. **Templates:** `Network Generic Device by SNMP` 또는 제조사 전용 템플릿(ArubaOS-CX 등)을 지정합니다.
-4. **Interfaces:** `Add` ➔ `SNMP` ➔ 해당 장비 IP와 포트(161) 입력.
-5. **Macros:** `{$SNMP_COMMUNITY}` 매크로 값에 장비에 설정된 문자열을 입력합니다.
+### 2.2 상세 상태 모니터링 (Deep Inspection)
+*   **컨테이너 정밀 점검:** `podman-compose ps`
+    *   `STATUS`가 `Up (healthy)`가 아닌 경우 해당 컨테이너의 로그를 즉시 확인해야 합니다.
+*   **실시간 자원 점유율 확인:** `podman stats --no-stream`
+    *   **CPU %:** 80% 상회 시 수집 프로세스 과부하를 의미함.
+    *   **MEM USAGE / LIMIT:** 설정된 예산(Limits) 내에서 안정적으로 동작하는지 확인.
+*   **로그 추적 (Troubleshooting):** `podman logs -f [컨테이너명]`
+    *   네트워크 통신 오류나 DB 연결 실패 등을 실시간으로 파악할 수 있는 가장 중요한 도구입니다.
 
 ---
 
-## 4. 장애 알람 및 대응 체계 (Alert & Incident Response)
+## 3. 신규 장비 및 서버 등록 (Asset Management)
 
-### 4.1 알람 전송 체계
-시스템은 임계치 위반 시 실시간으로 통합 알림을 전송합니다.
-*   **텔레그램(Telegram) 고가용 채널:** 장애 심각도(`Disaster`, `High`, `Warning`)와 함께 장애 발생 장비 및 항목명을 전송합니다.
+### 3.1 네트워크 장비 (SNMP 기반)
+1. **장비 설정:** SNMP v2c 활성화 및 모니터링 서버 IP(`192.168.11.31`) 허용.
+2. **Zabbix 등록:** `Data collection` ➔ `Hosts` ➔ `Create host`.
+3. **핵심 설정:** 인터페이스(SNMP), 템플릿(Generic/Vendor 전용), 매크로(`{$SNMP_COMMUNITY}`).
 
-### 4.2 장애 인지(Acknowledge) 처리 규칙
-중복 알람 방지와 이력 관리를 위해 장애 발생 시 반드시 '인지 처리'를 수행해야 합니다.
-1. Zabbix ➔ `Monitoring` ➔ `Problems` 이동.
-2. 해당 장애 항목의 `Ack` 열을 클릭하여 인지 메시지(예: "천안공장 현장 확인 중") 작성 후 `Update` 클릭.
-3. 조치가 완료되면 자동으로 `Resolved` 상태로 전환됩니다.
-
----
-
-## 5. 통합 관제 대시보드 활용 (Visualization)
-
-관리자가 직접 설계한 **"삼진정공 네트워크 모니터링"** 대시보드를 활용합니다.
-
-*   **가변 변수(Variables) 필터링:** 상단의 `Group`, `Host`, `Port` 필터를 사용하여 특정 섹션만 조회.
-*   **키오스크 모드 (Kiosk Mode):** 관제 센터 전시 시 우측 상단 `TV 아이콘` 클릭.
-*   **데이터 내보내기:** 위젯 메뉴 ➔ `Inspect` ➔ `Data` ➔ `Download CSV`.
+### 3.2 리눅스/윈도우 서버 (Agent 기반)
+1. **에이전트 설치:** 대상 서버에 Zabbix Agent 2 설치.
+2. **Server IP 지정:** 에이전트 설정 파일 내 `Server=192.168.11.31` 기재.
+3. **Zabbix 등록:** `Linux by Zabbix agent` 또는 `Windows by Zabbix agent` 템플릿 사용.
 
 ---
 
-## 6. 정기 유지보수 및 데이터 보호 (Maintenance)
+## 4. 장애 대응 및 알람 체계 (Incident Management)
 
-### 6.1 시스템 리소스 관리
-*   **디스크 용량 확인:** `df -h` (LVM 확장 후 총 300GB 가용 여부 점검)
-*   **프로젝트 용량 점검:** `du -sh ~/kr-netmon`
+### 4.1 알람 경로
+*   **텔레그램:** `[삼진정공 NOC]` 채널로 실시간 장애 정보 송출.
+*   **Zabbix Dashboard:** `Monitoring` ➔ `Problems`에서 전체 리스트 확인.
 
-### 6.2 데이터 백업 관리
-*   **자동 백업:** 매일 새벽 1시 자동 수행 (`/home/sjadmin/kr-netmon/backups/`)
-*   **수동 백업 실행:** `~/kr-netmon/scripts/db_backup.sh`
-*   **외부 복사 권고:** 주 1회 SCP를 이용한 개인 PC 2차 백업 수행.
+### 4.2 인지(Acknowledge) 프로세스
+장애 발생 시 중복 보고 방지를 위해 아래 절차를 반드시 수행합니다.
+1. 장애 항목의 `Ack` 클릭 ➔ 코멘트 입력(예: "회선 점검 중") ➔ `Acknowledge` 체크 ➔ `Update`.
+2. 조치 완료 후 장애가 해소되면 자동으로 목록에서 사라지며 이력에 남습니다.
 
 ---
 
-## 7. 응급 조치 및 장애 복구 (Emergency Plan)
+## 5. 정기 유지보수 및 리소스 최적화 (Maintenance)
 
-### 7.1 서비스 초기화
-설정이 꼬이거나 불능 상태일 때 강제 재빌드 및 재가동을 수행합니다.
+### 5.1 호스트 시스템 리소스 점검
+*   **디스크 사용량 정밀 확인:** `df -h`
+    *   `/` 경로의 사용량이 80%를 초과하지 않도록 관리하십시오. (LVM 확장 후 현재 300GB 확보 상태)
+*   **디스크 공간 확보 (Purge):** 사용하지 않는 컨테이너 이미지나 볼륨 찌꺼기가 쌓였을 때 실행합니다.
+    ```bash
+    podman system prune -a  # 주의: 현재 구동 중인 서비스 외 모든 미사용 리소스 삭제
+    ```
+
+### 5.2 백업 무결성 정기 검증 (Backup Verification)
+자동 백업이 정상적으로 수행되었는지 매주 1회 확인합니다.
+1. **파일 존재 확인:** `ls -lh /home/sjadmin/kr-netmon/backups/`
+2. **용량 추이 확인:** 파일 용량이 이전 대비 현저히 줄었거나 0byte라면 설정 오류입니다. (현재 약 80MB 내외 정상)
+3. **로그 확인:** `cat /home/sjadmin/kr-netmon/backups/backup_log.txt`에서 "Backup success" 메시지 확인.
+
+---
+
+## 6. 보안 및 네트워크 관리 (Security & Network)
+
+### 6.1 방화벽 상태 관리 (UFW)
+서버 자체 방화벽 설정을 주기적으로 점검하여 허용되지 않은 포트가 열려있지 않은지 확인합니다.
+*   **상태 확인:** `sudo ufw status verbose`
+*   **필수 허용 포트:** 22(SSH), 8081(Zabbix), 3001(Grafana), 10051(Zabbix Trapper).
+
+### 6.2 보안 패치
+OS 보안 업데이트가 필요한 경우 컨테이너 서비스를 잠시 중단하고 수행하는 것을 권장합니다.
+```bash
+podman-compose stop
+sudo apt update && sudo apt upgrade -y
+podman-compose up -d
+```
+
+---
+
+## 7. 응급 장애 복구 가이드 (Disaster Recovery)
+
+### 7.1 서비스 전면 재기동 (Hard Reset)
+시스템이 응답하지 않거나 설정이 심하게 꼬였을 때 수행합니다.
 ```bash
 cd ~/kr-netmon
 podman-compose down
 podman-compose up -d --build
 ```
 
-### 7.2 데이터베이스 복구 (Plan B)
-시스템 치명적 오류 시 `Backup_Recovery_Guide.md`의 절차에 따라 최신 SQL 백업본을 임포트합니다.
+### 7.2 데이터베이스 최후 복구 (Plan B)
+서비스 구동은 되나 데이터가 소실된 경우 백업 파일을 복원합니다.
+```bash
+# 형식: cat [백업파일] | podman exec -i kr-netmon-zabbix-db psql -U zabbix zabbix
+cat /home/sjadmin/kr-netmon/backups/zabbix_db_최신날짜.sql | podman exec -i kr-netmon-zabbix-db psql -U zabbix zabbix
+```
 
 ---
 **최종 업데이트:** 2026-02-27
