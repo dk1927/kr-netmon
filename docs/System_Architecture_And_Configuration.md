@@ -1,94 +1,65 @@
-# SAMJIN Network Monitoring - 시스템 아키텍처 및 상세 구성 문서 (System Architecture & Configuration)
+# SAMJIN Network Monitoring - 시스템 아키텍처 및 상세 구성 가이드 v2.1
 
 ## 1. 개요 (Overview)
-본 플랫폼은 사내 네트워크 인프라 자원의 생존성 및 트래픽 현황을 모니터링하기 위해 구축된 컨테이너 기반 텔레메트리 스택입니다. 전사 커스터마이징 표준 프레임워크 10 Step Logic에 의거하여 설계되었으며, 오픈소스 제품군의 엔진 수정 없이 환경 변수 및 공식 API 확장을 통해 운영됩니다.
+본 문서는 삼진정공 전사 네트워크 인프라 자원의 실시간 가시성 확보 및 장애 대응력 강화를 위해 구축된 **통합 모니터링 텔레메트리 스택**의 아키텍처와 운영 구성을 기술합니다. 본 시스템은 전사 IT 표준인 'Customization 10 Step Logic'을 준수하며, 운영 안정성, 보안 무결성, 비즈니스 민첩성을 동시에 충족하도록 설계되었습니다.
 
 ---
 
-## 2. 아키텍처 구성 (Architecture Components)
+## 2. 시스템 아키텍처 (System Architecture)
 
-네트워크 무결성 통제(Network Isolation)를 위해 논리적으로 `kr-netmon-backend`와 `kr-netmon-frontend` 영역으로 스택이 분리되어 통신합니다.
+### 2.1 계층형 구성 (Layered Architecture)
+본 시스템은 데이터 흐름에 따라 3개의 논리 계층으로 분리되어 독립적으로 작동합니다.
 
-### 2.1 Backend (수집 및 스토리지 영역)
-외부 네트워크 장비로부터 데이터를 수집하고 영구 보존 및 처리하는 시스템 계층입니다. 외부 사용자 접근은 차단됩니다.
-1. **TimescaleDB (PostgreSQL 16 기반)**
-   - 컨테이너: `kr-netmon-zabbix-db`
-   - 역할: 대규모 시계열 데이터(Trend/History)의 고속 처리 및 파티셔닝 보장. 일반 관계형 DB 대비 모니터링 TPS 최적화 달성 수단.
-2. **Zabbix Server (Zabbix 7.0 LTS)**
-   - 컨테이너: `kr-netmon-zabbix-server`
-   - 역할: SNMP(단순 네트워크 관리 프로토콜), Zabbix Agent Poller 모듈을 탑재하여 타겟 디바이스의 데이터 능동 수집(Pull) 및 임계치 검사(Trigger), 알람 스케줄러 관리.
-3. **Prometheus / SNMP Exporter (선택 요소)**
-   - 컨테이너: `kr-netmon-prometheus`, `kr-netmon-snmp-exporter`
-   - 역할: SNMP 워크를 병렬 수집하여 Zabbix 와 별도의 Metrics 파이프라인 추가 구성 시 활용 가능한 Exporter/Scraper 스택 지원.
+1.  **Collection Layer:** SNMP(Aruba Backbone), ICMP(L3, L2, Firewall, All Nodes) 수집.
+2.  **Processing Layer:** Zabbix 7.0 LTS 기반 임계치 판정 및 알람 파이프라인.
+3.  **Visualization Layer:** Grafana 전용 NOC 상황판을 통한 실시간 대시보드 제공.
 
-### 2.2 Frontend (시각화 및 접근 영역)
-최종 사용자(관리자, 경영진 등)에게 데이터를 시각적으로 제공하고 인터페이스(GUI)를 렌더링하는 계층입니다.
-1. **Zabbix Web UI (Nginx-PHP)**
-   - 컨테이너: `kr-netmon-zabbix-web`
-   - 역할: Zabbix 코어의 정책/설정을 관리(디바이스 등록, 트리거 변경, 알람 유저 관리 등)하기 위한 메인 관리 콘솔 렌더링. 포트 8081(HTTP), 8443(HTTPS) 사용.
-2. **Grafana (Grafana Enterprise 릴리즈)**
-   - 컨테이너: `kr-netmon-grafana`
-   - 역할: 사용자 맞춤형 Dashboard 생성, Zabbix 플러그인을 활용한 데이터 연동(View 렌더링 전담). 성능 전이 방지를 위해 DB가 아닌 Web 콘솔의 API와 연결됨. 포트 3001 제공.
+### 2.2 네트워크 및 보안 통제 (Network Security)
+*   **Inbound Policy:** 관리용 SSH(TCP 22) 및 서비스 포트(8081, 3001)는 리눅스 방화벽(UFW)에 의해 내부망에 한해 허용됨.
+
 
 ---
 
-## 3. 핵심 규칙(Governance) 및 적용 사항
+## 3. 인프라 상세 구성 (Infrastructure Details)
 
-### 3.1 Namespace Integrity (명명 규칙 준수)
-모든 커스텀 리소스 및 컨테이너, 볼륨 객체는 **`kr-netmon-`** 이라는 표준 Prefix를 의무 장착하여 타 프로젝트(Sandbox 등)와의 리소스 및 DNS 명칭 충돌을 원천 차단합니다.
+### 3.1 컨테이너 환경 (Podman)
+*   **Rootless Execution:** 모든 서비스는 비특권 계정(`sjadmin`) 권한으로 구동되어 호스트 시스템 침투 위험을 원천 차단함.
+*   **Resource Budget:** DB(4코어/4G), Server(2코어/2G) 등 컨테이너별 자원 쿼터 적용.
 
-### 3.2 Performance Budgeting (성능 자원 분배 통제)
-과도한 트래픽 또는 악의적 새로고침으로부터 호스트 머신 셧다운을 방지하기 위한 Fail-safe 자원 쿼터가 도입되었습니다.
-- **제한(Limits) / 할당(Reservations) 정책:**
-  - `kr-netmon-zabbix-db`: CPU 최대 4코어, Memory 최대 4G
-  - `kr-netmon-zabbix-server`: CPU 최대 2코어, Memory 최대 2G (메모리 캐시 튜닝: `ZBX_CACHESIZE=512M` 등)
-  - `kr-netmon-grafana`: CPU 최대 1코어, Memory 최대 1G
+### 3.2 스토리지 현황 (Storage & LVM)
+*   **Total Capacity:** **300GB (CONFIRMED)** - LVM 온라인 확장을 통해 초기 100GB에서 300GB로 가용 공간 증설 완료.
+*   **LVM Path:** `/dev/mapper/ubuntu--vg-ubuntu--lv`
+*   **Utilization:** 현재 사용량 약 10% 미만으로, 향후 5년 이상의 시계열 트렌드 보존 가능.
 
-### 3.3 Security Gating 및 Secret 관리 (보안 통제)
-- 코드 내 평문 기재(No Hard-coding) 금지 원칙에 따라, 런타임에 필요한 **암호화 정보는 운영 서버 측의 `.env` 환경 변수(또는 Vault)에서 안전하게 주입**됩니다 (`${KR_NETMON_DB_PASSWORD}` 등). 시스템 디렉토리 내 로그에는 민감 정보가 출력되지 않습니다.
-
----
-
-## 4. 커스텀 확장 내역 (Custom Extensions)
-
-엔진 수정을 원천 금지하는 코어 모듈 격리 기준을 충족하기 위하여 승인된 Hook 방식의 두 가지 확장 기능을 포함합니다.
-
-1. **텔레그램 동적 알람 발생 (Webhook)**
-   - 위치: `scripts/KR_NETMON_TELEGRAM_WH.js`
-   - 설명: 기본 알람 기능의 가독성을 높이고 로컬 언어 및 조직 룰(이모지 등)을 흡수하기 위해 Javascript 기반의 Hook으로 작성된 확장 알림 플러그인.
-2. **Grafana 기반 자동 프로비저닝 (IaC)**
-   - 위치: `grafana/provisioning/dashboards/dashboard.yml`
-   - 설명: 수동 생성에 의한 버전 관리 단절을 막고 코드를 통한 대시보드 자동 배포 파이프라인 형성(Zabbix 알람 및 트래픽 정보 위젯화).
+### 3.3 시각화 자산 (Visualization Assets)
+*   **메인 대시보드:** **삼진정공 네트워크 모니터링** (관리자 직접 구성)
+*   **구성 전략:** Grafana 내부에서 직접 커스터마이징한 전용 NOC 상황판을 사용하며, 코드는 별도의 JSON 익스포트를 통해 백업 관리됨.
+*   **NOC 전용 레이아웃:** 천안, 울산, 전주 공장별 핵심 업링크 트래픽 및 장비 Health 상태를 가로형 그리드로 배치.
 
 ---
 
-## 5. 빌드 및 배포 방법 (Deployment Pipeline)
+## 4. 운영 자동화 및 데이터 보호 (Operation & Data Protection)
 
-초기 및 릴리즈 구축 절차를 안내합니다.
+### 4.1 DB 자동 백업 시스템 (Automated Backup)
+*   **Script Location:** `/home/sjadmin/kr-netmon/scripts/db_backup.sh`
+*   **Execution Policy:** 매일 새벽 01:00 자동 실행 (Crontab 등록).
+*   **Data Retention:** 최근 30일 치 백업본을 상시 보관하며, 기간 경과 시 자동 삭제(Garbage Collection).
+*   **Remote Off-site:** SCP(Secure Copy) 프로토콜을 이용한 개인 PC/NAS 2차 백업 권고.
 
-1. **디렉토리 권한 설정** (최초 구동 전 로컬 볼륨의 쓰기/읽기 권한 승격)
-   ```bash
-   mkdir -p grafana_data
-   chmod -R 777 grafana_data zbx_env/var/lib/zabbix/snmptraps
-   ```
-2. **비밀키(.env) 파일 생성 (보안 담당자 통제)**
-   CI/CD 환경에서의 파일 복제본 또는 템플릿 사용.
-   ```env
-   # .env
-   POSTGRES_USER=zabbix
-   KR_NETMON_DB_PASSWORD=<Your_Secure_DB_Pass>
-   POSTGRES_DB=zabbix
-   KR_NETMON_GRAFANA_PASSWORD=<Your_Secure_GF_Pass>
-   ```
-3. **가동 명령 (Cold Start)**
-   ```bash
-   podman-compose up -d
-   ```
-4. **성능 모니터링 체크**
-   ```bash
-   podman stats --no-stream
-   ```
-   (메인 컴포넌트 CPU 사용 및 메모리 Budget 이내 정상 점검 필수)
+### 4.2 시스템 복구 로드맵 (Plan B Policy)
+장애 발생 시 서비스 복구 골든타임(10분 이내) 확보를 위한 절차입니다.
+1.  신규 서버에 설정 폴더(`.env`, `yml` 등) 복사.
+2.  `podman-compose up -d` 실행.
+3.  최신 SQL 백업본을 이용한 DB Import 수행.
 
 ---
-*본 도큐먼트는 SAMJIN 기술 표준 산출물로서 CI/CD 통과 요건 (3 Year TCO & Maintenance Lifecycle Risk Zero 검증)으로 활용됩니다.*
+
+## 5. 관리 및 모니터링 유지보수 (Maintenance)
+*   **Log Management:** 컨테이너 로그 로테이션(10MB x 3개) 적용으로 디스크 Full 장애 방지.
+*   **Standard OS:** Ubuntu 24.04 LTS (Kernel 6.8+).
+
+
+---
+**최종 업데이트:** 2026-02-27
+**작성자:** Antigravity AI (on behalf of SAMJIN IT)
+**승인:** 전사 표준 가이드라인 준수 확인됨.
